@@ -11,10 +11,15 @@ from torch import nn
 from torchvision.models._utils import IntermediateLayerGetter
 from typing import Dict, List
 
-#from  detr.util.misc import NestedTensor, is_main_process
-from  detr.util.misc import NestedTensor, is_main_process
+try:
+    # When training from inside act_copy (e.g. `cd act_copy; python imitate_episodes.py`)
+    # the local DETR package is available as top-level `detr`.
+    from detr.util.misc import NestedTensor, is_main_process  # type: ignore
+except ModuleNotFoundError:
+    # When using act_copy as a package from IsaacLab root, DETR lives under act_copy.detr.
+    from act_copy.detr.util.misc import NestedTensor, is_main_process
 
-from  .position_encoding import build_position_encoding
+from .position_encoding import build_position_encoding
 
 import IPython
 e = IPython.embed

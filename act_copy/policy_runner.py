@@ -89,7 +89,7 @@ class ACTPolicy(nn.Module):
             loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight
             return loss_dict
         else: # inference time
-            a_hat, _, (_, _) = self.model(qpos, image, env_state, qvel) # no action, sample from prior
+            a_hat, _, (mu, _) = self.model(qpos, image, env_state, qvel) # no action, sample from prior    
             return a_hat
 
 

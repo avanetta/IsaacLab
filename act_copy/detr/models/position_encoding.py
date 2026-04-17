@@ -6,8 +6,12 @@ import math
 import torch
 from torch import nn
 
-from detr.util.misc import NestedTensor
-#from detr.util.misc import NestedTensor
+try:
+    # Training from inside act_copy sees DETR as top-level `detr`.
+    from detr.util.misc import NestedTensor  # type: ignore
+except ModuleNotFoundError:
+    # When importing act_copy as a package, use the subpackage path.
+    from act_copy.detr.util.misc import NestedTensor
 import IPython
 e = IPython.embed
 

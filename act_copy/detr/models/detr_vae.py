@@ -49,7 +49,7 @@ class DETRVAE(nn.Module):
         self.transformer = transformer
         self.encoder = encoder
         hidden_dim = transformer.d_model
-        self.action_head = nn.Linear(hidden_dim, state_dim)
+        self.action_head = nn.Linear(hidden_dim, 8)
         self.is_pad_head = nn.Linear(hidden_dim, 1)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         self.context_length = context_length
@@ -61,12 +61,15 @@ class DETRVAE(nn.Module):
                 proj = nn.Conv2d(backbones[cam_id].num_channels, hidden_dim, kernel_size=1)
                 self.input_projections.append(proj)
             self.backbones = nn.ModuleList(backbones)
+            #self.input_proj_robot_state = nn.Linear(8, hidden_dim)
             self.input_proj_robot_state = nn.Linear(8, hidden_dim)
             if velocity_control:
-                self.input_proj_robot_state_vel = nn.Linear(8, hidden_dim)  # project concatenated [qpos, qvel]
+                #self.input_proj_robot_state_vel = nn.Linear(8, hidden_dim)  # project concatenated [qpos, qvel]
+                self.input_proj_robot_state_vel = nn.Linear(state_dim, hidden_dim)  # project concatenated [qpos, qvel]
         else:
             # input_dim = 7 + 7 # robot_state + env_state
-            self.input_proj_robot_state = nn.Linear(8, hidden_dim)
+            #self.input_proj_robot_state = nn.Linear(8, hidden_dim)
+            self.input_proj_robot_state = nn.Linear(state_dim, hidden_dim)
             self.input_proj_env_state = nn.Linear(8, hidden_dim)
             self.pos = torch.nn.Embedding(2, hidden_dim)
             self.backbones = None
@@ -75,9 +78,10 @@ class DETRVAE(nn.Module):
         self.latent_dim = 4 # final size of latent z # TODO tune
         self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
         self.encoder_action_proj = nn.Linear(8, hidden_dim) # project action to embedding
-        self.encoder_joint_proj = nn.Linear(8, hidden_dim)  # project qpos to embedding
+        #self.encoder_joint_proj = nn.Linear(8, hidden_dim)  # project qpos to embedding
+        self.encoder_joint_proj = nn.Linear(state_dim, hidden_dim)  # project qpos to embedding
         if velocity_control:
-            self.encoder_joint_vel_proj = nn.Linear(8, hidden_dim) # project action to embedding
+            self.encoder_joint_vel_proj = nn.Linear(state_dim, hidden_dim) # project action to embedding
 
         self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2) # project hidden state to latent std, var
         # Position table size: [CLS] + qpos + qvel (if velocity_control) + a_seq
@@ -89,7 +93,8 @@ class DETRVAE(nn.Module):
         # learned position embedding for latent, proprio (and optionally velocity)
         additional_pos_size = 3*self.context_length if velocity_control else 2*self.context_length
         self.additional_pos_embed = nn.Embedding(additional_pos_size, hidden_dim)
-        self.temporal_embed = nn.Embedding(self.context_length, hidden_dim)        
+        self.temporal_embed = nn.Embedding(self.context_length, hidden_dim)       
+         
     def forward(self, qpos, image, env_state, qvel=None, actions=None, is_pad=None):
         """
         qpos: batch, qpos_dim

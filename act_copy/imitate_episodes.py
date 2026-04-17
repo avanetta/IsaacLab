@@ -15,7 +15,7 @@ from utils import load_data # data functions
 from utils import sample_box_pose, sample_insertion_pose # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from policy import ACTPolicy, CNNMLPPolicy
-from visualize_episodes import save_videos
+#from visualize_episodes import save_videos
 
 
 import IPython
@@ -48,8 +48,10 @@ def main(args):
 
     # fixed parameters
     state_dim = 8
-    lr_backbone = 1e-5
+    lr_backbone = 1e-5 #if > 0 --> trains backbone, else backbone is frozen
+    #lr_backbone = 0.0
     backbone = 'resnet18'
+
     if policy_class == 'ACT':
         enc_layers = 4
         dec_layers = 6
@@ -70,8 +72,8 @@ def main(args):
                          'context_length': args['context_length'],       
                          'pretrained': args['pretrained'],
                             'dropout': args['dropout'],
-
                          }
+
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,
                          'camera_names': camera_names,}
@@ -126,6 +128,7 @@ def main(args):
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
 
 
+"""Initializes & returns policy based on policy class."""
 def make_policy(policy_class, policy_config):
     if policy_class == 'ACT':
         policy = ACTPolicy(policy_config)
@@ -135,7 +138,7 @@ def make_policy(policy_class, policy_config):
         raise NotImplementedError
     return policy
 
-
+"""Initializes & returns optimizer based on policy class."""
 def make_optimizer(policy_class, policy):
     if policy_class == 'ACT':
         optimizer = policy.configure_optimizers()
@@ -145,11 +148,11 @@ def make_optimizer(policy_class, policy):
         raise NotImplementedError
     return optimizer
 
-
+"""Returns processed image tensor from a timestep."""
 def get_image(ts, camera_names):
     curr_images = []
     for cam_name in camera_names:
-        curr_image = rearrange(ts.observation['images'][cam_name], 'h w c -> c h w')
+        curr_image = rearrange(ts.observation['camera'][cam_name], 'h w c -> c h w')
         curr_images.append(curr_image)
     curr_image = np.stack(curr_images, axis=0)
     curr_image = torch.from_numpy(curr_image / 255.0).float().cuda().unsqueeze(0)
@@ -329,14 +332,15 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
     return success_rate, avg_return
 
+
 def image_augmentation(image):
-    """
-    Apply augmentations to image batch.
-    Input shape: [batch, num_cameras, channels, height, width]
-    e.g., torch.Size([8, 2, 3, 240, 320])
+    """Apply augmentations to an image batch.
+
+    Expected input shape: [batch, num_cameras, context_length, channels, height, width]
+    Works for any ``num_cameras >= 1`` (including a single camera).
     """
     print("Applying image augmentation...", image.shape)
-    batch_size, num_cameras,chunk,channels, height, width = image.shape
+    batch_size, num_cameras,context_length,channels, height, width = image.shape
     
     # Define augmentations
     color_jitter = transforms.ColorJitter(
@@ -349,39 +353,39 @@ def image_augmentation(image):
         kernel_size=5,
         sigma=(0.1, 5.0)
     )
-    
-    # Random resized crop for camera 2 (keeps dimensions)
-    random_crop = transforms.RandomResizedCrop(
-        size=(height, width),
-        scale=(0.8, 1.0),  # Crop 80-100% of the image
-        ratio=(0.9, 1.1)   # Keep aspect ratio close to original
-    )
-    
-    # Process camera 1 (index 0): color jitter + gaussian blur
-    cam1 = image[:, 0]  # [batch, channels, height, width]
-    cam1 = color_jitter(cam1)
-    cam1 = gaussian_blur(cam1)
-    cam1 = random_crop(cam1)
+    # random_crop = transforms.RandomResizedCrop(
+    #     size=(height, width),
+    #     scale=(0.8, 1.0),  # Crop 80-100% of the image
+    #     ratio=(0.9, 1.1),  # Keep aspect ratio close to original
+    # )
 
-    # Process camera 2 (index 1): color jitter + gaussian blur + random crop
-    cam2 = image[:, 1]  # [batch, channels, height, width]
-    cam2 = color_jitter(cam2)
-    cam2 = gaussian_blur(cam2)
-    cam2 = random_crop(cam2)
-    
-    # Stack back to original shape: [batch, num_cameras, channels, height, width]
-    augmented_images = torch.stack([cam1, cam2], dim=1)
+    augmented_per_cam = []
+    for cam_idx in range(num_cameras):
+        # image[:, cam_idx]: [batch, context_length, channels, height, width]
+        cam = image[:, cam_idx]
+        cam = cam.reshape(batch_size * context_length, channels, height, width)
+        cam = color_jitter(cam)
+        cam = gaussian_blur(cam)
+        #cam = random_crop(cam)
+        cam = cam.reshape(batch_size, context_length, channels, height, width)
+        augmented_per_cam.append(cam)
+
+    # Stack cameras back: [batch, num_cameras, context_length, channels, height, width]
+    augmented_images = torch.stack(augmented_per_cam, dim=1)
     return augmented_images
+
 
 def forward_pass(data, policy, image_aug=False, epoch = 0):
     if len(data) == 4:
-        image_data, qpos_data, action_data, is_pad = data
+        # image_data, qpos_data, action_data, is_pad = data
+        image_data, qpos_data, action_data, is_pad = [x.cuda() for x in data[:4]] #move images to GPU before augmentation
         if image_aug:
             image_data = image_augmentation(image_data)
         image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
         return policy(qpos_data, image_data, action_data, is_pad,epoch=epoch)
     else:
-        image_data, qpos_data, action_data, is_pad, qvel_data = data
+        #image_data, qpos_data, action_data, is_pad, qvel_data = data
+        image_data, qpos_data, action_data, is_pad, qvel_data = [x.cuda() for x in data[:4]]
         if image_aug:
             image_data = image_augmentation(image_data)
         image_data, qpos_data, action_data, is_pad, qvel_data = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda(), qvel_data.cuda()
@@ -389,28 +393,34 @@ def forward_pass(data, policy, image_aug=False, epoch = 0):
 
 
 def train_bc(train_dataloader, val_dataloader, config):
+
+    #--------------------------LOAD POLICY AND OPTIMIZER--------------------------#
     num_epochs = config['num_epochs']
     ckpt_dir = config['ckpt_dir']
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
     image_aug = config['image_aug']
-    once = True
+    
     set_seed(seed)
 
     policy = make_policy(policy_class, policy_config)
+
     if policy_config['pretrained'] is not None:
             policy.load_state_dict(torch.load(policy_config['pretrained']))
             print("Loaded pretrained model from ", policy_config['pretrained'])
+
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 
+    #--------------------------LOOP--------------------------#
     train_history = []
     validation_history = []
     min_val_loss = np.inf
     best_ckpt_info = None
     for epoch in tqdm(range(num_epochs)):
         print(f'\nEpoch {epoch}')
+        
         # validation
         with torch.inference_mode():
             policy.eval()
@@ -424,7 +434,9 @@ def train_bc(train_dataloader, val_dataloader, config):
             epoch_val_loss = epoch_summary['loss']
             if epoch_val_loss < min_val_loss:
                 min_val_loss = epoch_val_loss
-                best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+                #best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+                checkpoint_cpu = {k: v.cpu().clone() for k, v in policy.state_dict().items()}
+                best_ckpt_info = (epoch, min_val_loss, checkpoint_cpu)
         print(f'Val loss:   {epoch_val_loss:.5f}')
         summary_string = ''
         for k, v in epoch_summary.items():
@@ -462,7 +474,7 @@ def train_bc(train_dataloader, val_dataloader, config):
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
-
+    
     ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     torch.save(policy.state_dict(), ckpt_path)
 
@@ -479,7 +491,11 @@ def train_bc(train_dataloader, val_dataloader, config):
 
 def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
     # save training curves
+    num_epochs_so_far = len(validation_history)
+    batches_per_epoch = len(train_history) // max(num_epochs_so_far, 1)
+
     for key in train_history[0]:
+        # --- Per-batch plot (original) ---
         plot_path = os.path.join(ckpt_dir, f'train_val_{key}_seed_{seed}.png')
         plt.figure()
         train_values = [summary[key].item() for summary in train_history]
@@ -489,8 +505,30 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
         # plt.ylim([-0.1, 1])
         plt.tight_layout()
         plt.legend()
-        plt.title(key)
+        plt.title(f'{key} (per batch)')
         plt.savefig(plot_path)
+        plt.close()
+
+        # --- Epoch-averaged plot ---
+        plot_path_avg = os.path.join(ckpt_dir, f'train_val_{key}_epoch_avg_seed_{seed}.png')
+        plt.figure()
+        # compute epoch-averaged train values
+        train_epoch_avg = []
+        for ep in range(num_epochs_so_far):
+            start = ep * batches_per_epoch
+            end = start + batches_per_epoch
+            epoch_vals = [summary[key].item() for summary in train_history[start:end]]
+            if epoch_vals:
+                train_epoch_avg.append(np.mean(epoch_vals))
+        epochs_x = np.arange(len(train_epoch_avg))
+        plt.plot(epochs_x, train_epoch_avg, label='train')
+        plt.plot(np.arange(len(val_values)), val_values, label='validation')
+        plt.tight_layout()
+        plt.legend()
+        plt.title(f'{key} (epoch avg)')
+        plt.savefig(plot_path_avg)
+        plt.close()
+
     print(f'Saved plots to {ckpt_dir}')
 
 
@@ -508,9 +546,9 @@ if __name__ == '__main__':
 
     # for ACT
     parser.add_argument('--kl_weight', action='store', type=float, help='KL Weight', required=False)
-    parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
-    parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
-    parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
+    parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=True)
+    parser.add_argument('--hidden_dim', action='store', type=int, default=256, help='hidden_dim', required=False)
+    parser.add_argument('--dim_feedforward', action='store', type=int, default=2048,help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     parser.add_argument('--velocity_control', action='store_true')
     parser.add_argument('--image_aug', action='store_true')

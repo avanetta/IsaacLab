@@ -1,7 +1,7 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = 'data/dataset_real_dynamics_with_gripper.hdf5' #'data_storage/mimic_teleop_4_headless_new_cam_pos.hdf5' #'/home/pdz/MasterThesis_MSC/ACT_org/unormalized_images_200_demos.hdf5' #/home/pdz/generated_dataset_15_01_26.hdf5'#
+DATA_DIR = 'act_copy/data/merged_dataset.hdf5' #'data_storage/mimic_teleop_4_headless_new_cam_pos.hdf5' #'/home/pdz/MasterThesis_MSC/ACT_org/unormalized_images_200_demos.hdf5' #/home/pdz/generated_dataset_15_01_26.hdf5'#
 SIM_TASK_CONFIGS = {
     'sim_transfer_cube_scripted':{
         'dataset_dir': DATA_DIR ,
@@ -33,8 +33,8 @@ SIM_TASK_CONFIGS = {
 
     'sim_usbc': {
         'dataset_dir': DATA_DIR,
-        'num_episodes': 30,
-        'episode_len': 200,
+        'num_episodes': 65,
+        'episode_len': 275,
         'camera_names': ['camera']
     },
 }
