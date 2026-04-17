@@ -54,9 +54,8 @@ Guidelines for modifications:
 * Brayden Zhang
 * Brian Bingham
 * Brian McCann
-* Caelan Garrett
-* Calvin Yu
 * Cameron Upright
+* Calvin Yu
 * Cathy Y. Li
 * Cheng-Rong Lai
 * Chenyu Yang
@@ -135,7 +134,6 @@ Guidelines for modifications:
 * Rafael Wiltz
 * Renaud Poncelet
 * René Zurbrügg
-* RinZ27
 * Ritvik Singh
 * Rosario Scalise
 * Ryan Gresia

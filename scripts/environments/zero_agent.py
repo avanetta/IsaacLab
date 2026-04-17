@@ -31,6 +31,7 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 import torch
+import isaaclab_mimic.envs
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import parse_env_cfg
@@ -54,12 +55,13 @@ def main():
     env.reset()
     # simulate environment
     while simulation_app.is_running():
-        # run everything in inference mode
-        with torch.inference_mode():
-            # compute zero actions
-            actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
-            # apply actions
-            env.step(actions)
+        # # run everything in inference mode
+        # with torch.inference_mode():
+        #     # compute zero actions
+        #     actions = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
+        #     # apply actions
+        #     env.step(actions)
+        simulation_app.update()
 
     # close the simulator
     env.close()

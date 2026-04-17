@@ -9,14 +9,6 @@ Tricks and Troubleshooting
     assistance.
 
 
-Troubleshooting distributed training NCCL errors
-------------------------------------------------
-
-On some Linux multi-GPU systems, distributed training may fail with
-``CUDA error: an illegal memory access was encountered`` reported by ``ProcessGroupNCCL``.
-For documented NCCL workarounds, see :ref:`multi-gpu-nccl-troubleshooting`.
-
-
 Debugging physics simulation stability issues
 ---------------------------------------------
 

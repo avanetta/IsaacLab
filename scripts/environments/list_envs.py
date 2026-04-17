@@ -36,10 +36,10 @@ import gymnasium as gym
 from prettytable import PrettyTable
 
 import isaaclab_tasks  # noqa: F401
-
+import isaaclab_mimic.envs  # noqa: F401
 
 def main():
-    """Print all environments registered in `isaaclab_tasks` extension."""
+    """Print all environments registered in `isaaclab_tasks` & 'isaaclab_mimic.envs` extension."""
     # print all the available environments
     table = PrettyTable(["S. No.", "Task Name", "Entry Point", "Config"])
     table.title = "Available Environments in Isaac Lab"

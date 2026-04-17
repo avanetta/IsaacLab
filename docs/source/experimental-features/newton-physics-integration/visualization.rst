@@ -59,8 +59,8 @@ Launch visualizers from the command line with ``--visualizer``:
 
 .. code-block:: bash
 
-    # Launch all visualizers (comma-delimited list, no spaces)
-    python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Cartpole-v0 --visualizer kit,newton,rerun
+    # Launch all visualizers
+    python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Cartpole-v0 --visualizer omniverse newton rerun
 
     # Launch just newton visualizer
     python scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Cartpole-v0 --visualizer newton
@@ -77,20 +77,18 @@ If ``--headless`` is given, no visualizers will be launched.
 Configuration
 ~~~~~~~~~~~~~
 
-Launching visualizers with the command line will use default visualizer configurations. Visualizer backends live in the ``isaaclab_visualizers`` package (e.g. ``source/isaaclab_visualizers/isaaclab_visualizers/kit``, ``newton``, ``rerun``).
+Launching visualizers with the command line will use default visualizer configurations. Default configs can be found and edited in ``source/isaaclab/isaaclab/visualizers``.
 
-You can also configure custom visualizers in the code by defining ``VisualizerCfg`` instances for the ``SimulationCfg``, for example:
+You can also configure custom visualizers in the code by defining new ``VisualizerCfg`` instances for the ``SimulationCfg``, for example:
 
 .. code-block:: python
 
     from isaaclab.sim import SimulationCfg
-    from isaaclab_visualizers.kit import KitVisualizerCfg
-    from isaaclab_visualizers.newton import NewtonVisualizerCfg
-    from isaaclab_visualizers.rerun import RerunVisualizerCfg
+    from isaaclab.visualizers import NewtonVisualizerCfg, OVVisualizerCfg, RerunVisualizerCfg
 
     sim_cfg = SimulationCfg(
         visualizer_cfgs=[
-            KitVisualizerCfg(
+            OVVisualizerCfg(
                 viewport_name="Visualizer Viewport",
                 create_viewport=True,
                 dock_position="SAME",
@@ -130,9 +128,9 @@ Omniverse Visualizer
 
 .. code-block:: python
 
-    from isaaclab_visualizers.kit import KitVisualizerCfg
+    from isaaclab.visualizers import OVVisualizerCfg
 
-    visualizer_cfg = KitVisualizerCfg(
+    visualizer_cfg = OVVisualizerCfg(
         # Viewport settings
         viewport_name="Visualizer Viewport",      # Viewport window name
         create_viewport=True,                     # Create new viewport vs. use existing
@@ -178,6 +176,8 @@ Newton Visualizer
      - Look around
    * - **Mouse Scroll**
      - Zoom in/out
+   * - **Space**
+     - Pause/resume rendering (physics continues)
    * - **H**
      - Toggle UI sidebar
    * - **ESC**
@@ -187,7 +187,7 @@ Newton Visualizer
 
 .. code-block:: python
 
-    from isaaclab_visualizers.newton import NewtonVisualizerCfg
+    from isaaclab.visualizers import NewtonVisualizerCfg
 
     visualizer_cfg = NewtonVisualizerCfg(
         # Window settings
@@ -233,14 +233,12 @@ Rerun Visualizer
 
 .. code-block:: python
 
-    from isaaclab_visualizers.rerun import RerunVisualizerCfg
+    from isaaclab.visualizers import RerunVisualizerCfg
 
     visualizer_cfg = RerunVisualizerCfg(
         # Server settings
         app_id="isaaclab-simulation",             # Application identifier for viewer
-        grpc_port=9876,                           # gRPC endpoint for logging SDK connection
         web_port=9090,                            # Port for local web viewer (launched in browser)
-        bind_address="0.0.0.0",                  # Endpoint host formatting/reuse checks
 
         # Camera settings
         camera_position=(8.0, 8.0, 3.0),         # Initial camera position (x, y, z)
@@ -253,10 +251,6 @@ Rerun Visualizer
         # Recording
         record_to_rrd="recording.rrd",            # Path to save .rrd file (None = no recording)
     )
-
-Rerun startup uses the Python SDK through ``newton.viewer.ViewerRerun`` (no external ``rerun`` CLI process
-management). If ``grpc_port`` is already active, Isaac Lab reuses that server. If ``web_port`` is occupied while
-starting a new server, initialization fails with a clear port-conflict error.
 
 
 Performance Note

@@ -78,6 +78,7 @@ from isaaclab.envs.mdp.recorders.recorders_cfg import ActionStateRecorderManager
 from isaaclab.managers import RecorderTerm, RecorderTermCfg, TerminationTermCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.datasets import EpisodeData, HDF5DatasetFileHandler
+from isaaclab.utils import math as PoseUtils
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
@@ -117,8 +118,49 @@ class PreStepDatagenInfoRecorder(RecorderTerm):
         for eef_name in self._env.cfg.subtask_configs.keys():
             eef_pose_dict[eef_name] = self._env.get_robot_eef_pose(eef_name=eef_name)
 
+        # Get object poses and convert to 4x4 format
+        object_poses = self._env.get_object_poses()
+        converted_object_poses = {}
+        
+        for obj_name, pose_data in object_poses.items():
+            # Convert to tensor if needed
+            if not isinstance(pose_data, torch.Tensor):
+                pose_data = torch.from_numpy(pose_data).to(self._env.device).float()
+            else:
+                pose_data = pose_data.to(self._env.device).float()
+            
+            # Remember original dimensionality to match input shape
+            original_dim = pose_data.dim()
+            
+            # Handle 7D pose format: [x, y, z, qw, qx, qy, qz]
+            if pose_data.shape[-1] == 7:
+                # Ensure batch dimension exists
+                if pose_data.dim() == 1:
+                    pose_data = pose_data.unsqueeze(0)  # Shape: (1, 7)
+                
+                pos = pose_data[:, :3]  # Shape: (batch, 3)
+                quat = pose_data[:, 3:]  # Shape: (batch, 4)
+                
+                # Convert quaternion to rotation matrix using matrix_from_quat
+                rot_mat = PoseUtils.matrix_from_quat(quat)  # Shape: (batch, 3, 3)
+                
+                # Manually construct 4x4 matrix: [[R, p], [0, 1]]
+                batch_size = pos.shape[0]
+                pose_4x4 = torch.eye(4, device=pose_data.device, dtype=pose_data.dtype).unsqueeze(0).repeat(batch_size, 1, 1)
+                pose_4x4[:, :3, :3] = rot_mat  # Top-left 3x3: rotation
+                pose_4x4[:, :3, 3] = pos  # Top-right 3x1: position
+                
+                # Restore original dimensionality: if input was 1D, output 2D (4x4); if 2D, output 3D (Nx4x4)
+                if original_dim == 1:
+                    converted_object_poses[obj_name] = pose_4x4[0]
+                else:
+                    converted_object_poses[obj_name] = pose_4x4
+            else:
+                # Already in 4x4 format or other format - pass through
+                converted_object_poses[obj_name] = pose_data
+
         datagen_info = {
-            "object_pose": self._env.get_object_poses(),
+            "object_pose": converted_object_poses,
             "eef_pose": eef_pose_dict,
             "target_eef_pose": self._env.action_to_target_eef_pose(self._env.action_manager.action),
         }
@@ -358,6 +400,24 @@ def replay_episode(
     env.sim.reset()
     env.recorder_manager.reset()
     env.reset_to(initial_state, None, is_relative=True)
+    
+    # Set object poses from the recorded initial state if available
+    if "rigid_object" in initial_state:
+        for obj_name, obj_data in initial_state["rigid_object"].items():
+            if "root_pose" in obj_data:
+                pose_data = obj_data["root_pose"]
+                # Handle both numpy arrays and tensors
+                if isinstance(pose_data, torch.Tensor):
+                    root_pose = pose_data.float().to(env.device)
+                else:
+                    root_pose = torch.from_numpy(pose_data).float().to(env.device)
+                #print(f"Setting initial pose for object '{obj_name}' to {root_pose.cpu().numpy()}")
+                try:
+                    env.set_object_pose(root_pose, obj_name=obj_name)
+                except (AttributeError, RuntimeError, ValueError) as e:
+                    print(f"Warning: Could not set object pose for {obj_name}: {e}")
+                    pass
+    
     first_action = True
     for action_index, action in enumerate(actions):
         current_action_index = action_index

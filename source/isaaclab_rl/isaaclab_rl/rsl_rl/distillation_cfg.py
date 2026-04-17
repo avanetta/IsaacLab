@@ -10,88 +10,25 @@ from typing import Literal
 
 from isaaclab.utils import configclass
 
-from .rl_cfg import RslRlBaseRunnerCfg, RslRlMLPModelCfg
-
-############################
-# Algorithm configurations #
-############################
-
-
-@configclass
-class RslRlDistillationAlgorithmCfg:
-    """Configuration for the distillation algorithm."""
-
-    class_name: str = "Distillation"
-    """The algorithm class name. Defaults to Distillation."""
-
-    num_learning_epochs: int = MISSING
-    """The number of updates performed with each sample."""
-
-    learning_rate: float = MISSING
-    """The learning rate for the student policy."""
-
-    gradient_length: int = MISSING
-    """The number of environment steps the gradient flows back."""
-
-    max_grad_norm: None | float = None
-    """The maximum norm the gradient is clipped to. Defaults to None."""
-
-    optimizer: Literal["adam", "adamw", "sgd", "rmsprop"] = "adam"
-    """The optimizer to use for the student policy. Defaults to adam."""
-
-    loss_type: Literal["mse", "huber"] = "mse"
-    """The loss type to use for the student policy. Defaults to mse."""
-
+from .rl_cfg import RslRlBaseRunnerCfg
 
 #########################
-# Runner configurations #
+# Policy configurations #
 #########################
-
-
-@configclass
-class RslRlDistillationRunnerCfg(RslRlBaseRunnerCfg):
-    """Configuration of the runner for distillation algorithms."""
-
-    class_name: str = "DistillationRunner"
-    """The runner class name. Defaults to DistillationRunner."""
-
-    student: RslRlMLPModelCfg = MISSING
-    """The student configuration."""
-
-    teacher: RslRlMLPModelCfg = MISSING
-    """The teacher configuration."""
-
-    algorithm: RslRlDistillationAlgorithmCfg = MISSING
-    """The algorithm configuration."""
-
-    policy: RslRlDistillationStudentTeacherCfg = MISSING
-    """The policy configuration.
-
-    For rsl-rl >= 4.0.0, this configuration is deprecated. Please use `student` and `teacher` model configurations
-    instead.
-    """
-
-
-#############################
-# Deprecated configurations #
-#############################
 
 
 @configclass
 class RslRlDistillationStudentTeacherCfg:
-    """Configuration for the distillation student-teacher networks.
-
-    For rsl-rl >= 4.0.0, this configuration is deprecated. Please use `RslRlMLPModelCfg` instead.
-    """
+    """Configuration for the distillation student-teacher networks."""
 
     class_name: str = "StudentTeacher"
-    """The policy class name. Defaults to StudentTeacher."""
+    """The policy class name. Default is StudentTeacher."""
 
     init_noise_std: float = MISSING
     """The initial noise standard deviation for the student policy."""
 
     noise_std_type: Literal["scalar", "log"] = "scalar"
-    """The type of noise standard deviation for the policy. Defaults to scalar."""
+    """The type of noise standard deviation for the policy. Default is scalar."""
 
     student_obs_normalization: bool = MISSING
     """Whether to normalize the observation for the student network."""
@@ -111,13 +48,10 @@ class RslRlDistillationStudentTeacherCfg:
 
 @configclass
 class RslRlDistillationStudentTeacherRecurrentCfg(RslRlDistillationStudentTeacherCfg):
-    """Configuration for the distillation student-teacher recurrent networks.
-
-    For rsl-rl >= 4.0.0, this configuration is deprecated. Please use `RslRlRNNModelCfg` instead.
-    """
+    """Configuration for the distillation student-teacher recurrent networks."""
 
     class_name: str = "StudentTeacherRecurrent"
-    """The policy class name. Defaults to StudentTeacherRecurrent."""
+    """The policy class name. Default is StudentTeacherRecurrent."""
 
     rnn_type: str = MISSING
     """The type of the RNN network. Either "lstm" or "gru"."""
@@ -130,3 +64,53 @@ class RslRlDistillationStudentTeacherRecurrentCfg(RslRlDistillationStudentTeache
 
     teacher_recurrent: bool = MISSING
     """Whether the teacher network is recurrent too."""
+
+
+############################
+# Algorithm configurations #
+############################
+
+
+@configclass
+class RslRlDistillationAlgorithmCfg:
+    """Configuration for the distillation algorithm."""
+
+    class_name: str = "Distillation"
+    """The algorithm class name. Default is Distillation."""
+
+    num_learning_epochs: int = MISSING
+    """The number of updates performed with each sample."""
+
+    learning_rate: float = MISSING
+    """The learning rate for the student policy."""
+
+    gradient_length: int = MISSING
+    """The number of environment steps the gradient flows back."""
+
+    max_grad_norm: None | float = None
+    """The maximum norm the gradient is clipped to."""
+
+    optimizer: Literal["adam", "adamw", "sgd", "rmsprop"] = "adam"
+    """The optimizer to use for the student policy."""
+
+    loss_type: Literal["mse", "huber"] = "mse"
+    """The loss type to use for the student policy."""
+
+
+#########################
+# Runner configurations #
+#########################
+
+
+@configclass
+class RslRlDistillationRunnerCfg(RslRlBaseRunnerCfg):
+    """Configuration of the runner for distillation algorithms."""
+
+    class_name: str = "DistillationRunner"
+    """The runner class name. Default is DistillationRunner."""
+
+    policy: RslRlDistillationStudentTeacherCfg = MISSING
+    """The policy configuration."""
+
+    algorithm: RslRlDistillationAlgorithmCfg = MISSING
+    """The algorithm configuration."""

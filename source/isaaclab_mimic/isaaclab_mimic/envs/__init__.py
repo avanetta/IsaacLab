@@ -6,6 +6,7 @@
 """Sub-package with environment wrappers for Isaac Lab Mimic."""
 
 import gymnasium as gym
+# from isaaclab_mimic.envs import franka_stack_ik_abs_mimic_env_cfg_rgb
 
 ##
 # Inverse Kinematics - Relative Pose Control
@@ -60,6 +61,25 @@ gym.register(
     disable_env_checker=True,
 )
 
+gym.register(
+    id="Isaac-Unplug-Franka-IK-Abs-Mimic-RGB-v0",
+    entry_point=f"{__name__}.franka_unplug_ik_abs_mimic_env_rgb:FrankaUnplugIKAbsMimicEnvRGB",
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.franka_unplug_ik_abs_mimic_env_cfg_rgb:FrankaUnplugIKAbsMimicEnvCfgRGB"
+        ),
+    },
+    disable_env_checker=True,
+)
+
+# gym.register(
+#     id="Isaac-Stack-Cube-Franka-IK-Abs-Mimic-RGB-v0",
+#     entry_point="isaaclab_mimic.envs:FrankaCubeStackIKAbsMimicEnvRGB",
+#     kwargs={
+#         "env_cfg_entry_point": franka_stack_ik_abs_mimic_env_cfg_rgb.FrankaCubeStackIKAbsMimicEnvCfgRGB,
+#     },
+#     disable_env_checker=True,
+# )
 
 ##
 # SkillGen
