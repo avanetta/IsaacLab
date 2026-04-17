@@ -1,0 +1,3 @@
+[submodule "transformer_cvae"]
+	path = transformer_cvae
+	url = https://github.com/avanetta/transformer_cvae
