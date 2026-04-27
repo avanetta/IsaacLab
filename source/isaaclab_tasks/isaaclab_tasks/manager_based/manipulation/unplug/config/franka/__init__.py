@@ -24,12 +24,4 @@ gym.register(
 )
 
 
-# Inverse Kinematics - Absolute Pose Control
-gym.register(
-    id="Isaac-Unplug-Franka-IK-Abs-RL-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.unplug_ik_abs_rl_env_cfg:FrankaUnplugIKAbsRLEnvCfgRGB",
-    },
-    disable_env_checker=True,
-)
+

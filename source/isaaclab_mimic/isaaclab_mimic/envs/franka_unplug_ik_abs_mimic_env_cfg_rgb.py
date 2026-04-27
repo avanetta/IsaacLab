@@ -22,11 +22,6 @@ class FrankaUnplugIKAbsMimicEnvCfgRGB(FrankaUnplugIKAbsEnvCfgRGB, MimicEnvCfg):
         # post init of parents
         super().__post_init__()
 
-        # Explicitly ensure same robot config
-        #TODO check if not real panda values
-        #self.scene.robot = FRANKA_PANDA_REAL_ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-        
-
         # Override the existing values
         self.datagen_config.name = "demo_src_unplug_lab_task_D0"
         self.datagen_config.generation_guarantee = True
@@ -70,7 +65,7 @@ class FrankaUnplugIKAbsMimicEnvCfgRGB(FrankaUnplugIKAbsEnvCfgRGB, MimicEnvCfg):
                 subtask_term_offset_range=(0, 0),
                 selection_strategy="nearest_neighbor_object",
                 selection_strategy_kwargs={"nn_k": 3},
-                action_noise=0.000,#0.015
+                action_noise=0.0,#0.015
                 num_interpolation_steps=5,
                 num_fixed_steps=0,
                 apply_noise_during_interpolation=False,
