@@ -48,13 +48,13 @@ def main(args):
 
     # fixed parameters
     state_dim = 8
-    lr_backbone = 1e-5 #if > 0 --> trains backbone, else backbone is frozen
+    lr_backbone = 0.0 #if > 0 --> trains backbone, else backbone is frozen
     #lr_backbone = 0.0
     backbone = 'resnet18'
 
     if policy_class == 'ACT':
-        enc_layers = 4
-        dec_layers = 6
+        enc_layers = 4#4
+        dec_layers = 7#6
         nheads = 8
         policy_config = {'lr': args['lr'],
                          'num_queries': args['chunk_size'],
@@ -72,6 +72,9 @@ def main(args):
                          'context_length': args['context_length'],       
                          'pretrained': args['pretrained'],
                             'dropout': args['dropout'],
+                         'latent_dim': args['latent_dim'],
+                         'beta_warmup_epochs': args['beta_warmup_epochs'],
+                         'decoder_no_state': args.get('decoder_no_state', False),
                          }
 
     elif policy_class == 'CNNMLP':
@@ -111,7 +114,7 @@ def main(args):
         print()
         exit()
 
-    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size=args['chunk_size'], velocity_control=args["velocity_control"], context_length=args["context_length"])
+    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size=args['chunk_size'], velocity_control=args["velocity_control"], context_length=args["context_length"], num_real_demos=args.get('num_real_demos', 0))
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
         os.makedirs(ckpt_dir)
@@ -339,7 +342,7 @@ def image_augmentation(image):
     Expected input shape: [batch, num_cameras, context_length, channels, height, width]
     Works for any ``num_cameras >= 1`` (including a single camera).
     """
-    print("Applying image augmentation...", image.shape)
+    #print("Applying image augmentation...", image.shape)
     batch_size, num_cameras,context_length,channels, height, width = image.shape
     
     # Define augmentations
@@ -352,12 +355,12 @@ def image_augmentation(image):
     gaussian_blur = transforms.GaussianBlur(
         kernel_size=5,
         sigma=(0.1, 5.0)
+        #sigma=(0.1, 2.0)
     )
-    # random_crop = transforms.RandomResizedCrop(
-    #     size=(height, width),
-    #     scale=(0.8, 1.0),  # Crop 80-100% of the image
-    #     ratio=(0.9, 1.1),  # Keep aspect ratio close to original
-    # )
+    random_affine = transforms.RandomAffine(
+        degrees=5,  # ±5 degree rotations
+        translate=(0.05, 0.05)  # ±5% translation
+    )
 
     augmented_per_cam = []
     for cam_idx in range(num_cameras):
@@ -366,7 +369,8 @@ def image_augmentation(image):
         cam = cam.reshape(batch_size * context_length, channels, height, width)
         cam = color_jitter(cam)
         cam = gaussian_blur(cam)
-        #cam = random_crop(cam)
+        # Spatial augmentations: random rotations and translations (can be commented out if needed)
+        #cam = random_affine(cam)
         cam = cam.reshape(batch_size, context_length, channels, height, width)
         augmented_per_cam.append(cam)
 
@@ -413,11 +417,41 @@ def train_bc(train_dataloader, val_dataloader, config):
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
 
+    # Save training parameters to file
+    import json
+    batch_size = train_dataloader.batch_size
+    action_dim = 8  # fixed for this task
+    parameters = {
+        'batch_size': batch_size,
+        'seed': seed,
+        'num_epochs': num_epochs,
+        'lr': policy_config['lr'],
+        'chunk_size': policy_config['num_queries'],
+        'kl_weight': policy_config['kl_weight'],
+        'beta_warmup_epochs': policy_config['beta_warmup_epochs'],
+        'context_length': policy_config['context_length'],
+        'image_aug': image_aug,
+        'hidden_dim': policy_config['hidden_dim'],
+        'latent_dim': policy_config['latent_dim'],
+        'dim_feedforward': policy_config['dim_feedforward'],
+        'state_dim': config['state_dim'],
+        'action_dim': action_dim,
+        'lr_backbone': policy_config['lr_backbone'],
+        'enc_layers': policy_config['enc_layers'],
+        'dec_layers': policy_config['dec_layers'],
+        'nheads': policy_config['nheads'],
+    }
+    param_path = os.path.join(ckpt_dir, 'parameters.json')
+    with open(param_path, 'w') as f:
+        json.dump(parameters, f, indent=4)
+    print(f'Saved training parameters to {param_path}')
+
     #--------------------------LOOP--------------------------#
     train_history = []
     validation_history = []
     min_val_loss = np.inf
     best_ckpt_info = None
+
     for epoch in tqdm(range(num_epochs)):
         print(f'\nEpoch {epoch}')
         
@@ -470,10 +504,13 @@ def train_bc(train_dataloader, val_dataloader, config):
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
-        if epoch % 100 == 0:
+        if epoch % 50 == 0:
+            plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
+        if epoch % 500 == 0:
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
-            plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
+            
+                
     
     ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     torch.save(policy.state_dict(), ckpt_path)
@@ -502,34 +539,34 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
         val_values = [summary[key].item() for summary in validation_history]
         plt.plot(np.linspace(0, num_epochs-1, len(train_history)), train_values, label='train')
         plt.plot(np.linspace(0, num_epochs-1, len(validation_history)), val_values, label='validation')
+        
+        # Add minimum lines for KL divergence
+        if key == 'kl':
+            train_min = min(train_values)
+            val_min = min(val_values)
+            plt.axhline(y=train_min, color='blue', linestyle='--', alpha=0.7, linewidth=1)
+            plt.axhline(y=val_min, color='orange', linestyle='--', alpha=0.7, linewidth=1)
+        
         # plt.ylim([-0.1, 1])
         plt.tight_layout()
-        plt.legend()
+        legend = plt.legend()
+        
+        # Add minimum values text under legend for KL divergence
+        if key == 'kl':
+            train_min = min(train_values)
+            val_min = min(val_values)
+            textstr = f'train min: {train_min:.4f}\nval min: {val_min:.4f}'
+            plt.text(0.02, -0.15, textstr, transform=plt.gca().transAxes, 
+                    fontsize=9, verticalalignment='top', 
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+        
         plt.title(f'{key} (per batch)')
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, bbox_inches='tight')
         plt.close()
 
-        # --- Epoch-averaged plot ---
-        plot_path_avg = os.path.join(ckpt_dir, f'train_val_{key}_epoch_avg_seed_{seed}.png')
-        plt.figure()
-        # compute epoch-averaged train values
-        train_epoch_avg = []
-        for ep in range(num_epochs_so_far):
-            start = ep * batches_per_epoch
-            end = start + batches_per_epoch
-            epoch_vals = [summary[key].item() for summary in train_history[start:end]]
-            if epoch_vals:
-                train_epoch_avg.append(np.mean(epoch_vals))
-        epochs_x = np.arange(len(train_epoch_avg))
-        plt.plot(epochs_x, train_epoch_avg, label='train')
-        plt.plot(np.arange(len(val_values)), val_values, label='validation')
-        plt.tight_layout()
-        plt.legend()
-        plt.title(f'{key} (epoch avg)')
-        plt.savefig(plot_path_avg)
-        plt.close()
 
     print(f'Saved plots to {ckpt_dir}')
+    plt.close('all')
 
 
 if __name__ == '__main__':
@@ -545,16 +582,19 @@ if __name__ == '__main__':
     parser.add_argument('--lr', action='store', type=float, help='lr', required=True)
 
     # for ACT
-    parser.add_argument('--kl_weight', action='store', type=float, help='KL Weight', required=False)
+    parser.add_argument('--kl_weight', action='store', type=float, help='KL Weight', required=True)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=True)
-    parser.add_argument('--hidden_dim', action='store', type=int, default=256, help='hidden_dim', required=False)
+    parser.add_argument('--hidden_dim', action='store', type=int, default=32, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, default=2048,help='dim_feedforward', required=False)
+    parser.add_argument('--context_length', action='store', type=int, help='context_length', required=False, default=1)
+    parser.add_argument('--latent_dim', action='store', type=int,default=256, help='latent_dim for ACT VAE', required=False)
+    parser.add_argument('--dropout', action='store', type=float, help='dropout rate', required=False, default=0.1)
+    parser.add_argument('--beta_warmup_epochs', action='store', type=int, help='Number of epochs to warmup beta (KL weight) from 0 to target', required=False, default=0)
     parser.add_argument('--temporal_agg', action='store_true')
     parser.add_argument('--velocity_control', action='store_true')
     parser.add_argument('--image_aug', action='store_true')
-    parser.add_argument('--context_length', action='store', type=int, help='context_length', required=False, default=1)
     parser.add_argument("--pretrained", type=str, help="Path to pretrained model", default=None)
-    parser.add_argument('--dropout', action='store', type=float, help='dropout rate', required=False, default=0.1)
-
+    parser.add_argument('--decoder_no_state', action='store_true', help='If True, decoder does not receive qpos/qvel (only latent z)')
+    parser.add_argument('--num_real_demos', type=int, default=0, help='Number of real-world demos for weighted sampling (0 = no weighting)')
     
     main(vars(parser.parse_args()))

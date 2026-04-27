@@ -1,7 +1,8 @@
 import pathlib
 
 ### Task parameters
-DATA_DIR = 'act_copy/data/merged_dataset.hdf5' #'data_storage/mimic_teleop_4_headless_new_cam_pos.hdf5' #'/home/pdz/MasterThesis_MSC/ACT_org/unormalized_images_200_demos.hdf5' #/home/pdz/generated_dataset_15_01_26.hdf5'#
+DATA_DIR = '/home/alessio/recording_data/26_04_10_usbc_light_positional_original_impedance' #'data_storage/mimic_teleop_4_headless_new_cam_pos.hdf5' #'/home/pdz/MasterThesis_MSC/ACT_org/unormalized_images_200_demos.hdf5' #/home/pdz/generated_dataset_15_01_26.hdf5'#
+
 SIM_TASK_CONFIGS = {
     'sim_transfer_cube_scripted':{
         'dataset_dir': DATA_DIR ,
@@ -10,30 +11,44 @@ SIM_TASK_CONFIGS = {
         'camera_names': ['image', 'image2']
     },
 
-    'sim_transfer_cube_human':{
-        'dataset_dir': DATA_DIR + '/sim_transfer_cube_human',
+    'sim_usbc_sim_50': {
+        'dataset_dir': DATA_DIR + '/generated_dataset_50demos_cleaned.hdf5',
         'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['top']
+        'episode_len': 275,
+        'camera_names': ['camera']
     },
 
-    'sim_insertion_scripted': {
-        'dataset_dir': DATA_DIR + '/sim_insertion_scripted',
-        'num_episodes': 50,
-        'episode_len': 400,
-        'camera_names': ['top']
+    'sim_usbc_sim_200': {
+        'dataset_dir': DATA_DIR + '/generated_dataset_200demos_cleaned.hdf5',
+        'num_episodes': 200,
+        'episode_len': 275,
+        'camera_names': ['camera']
     },
 
-    'sim_insertion_human': {
-        'dataset_dir': DATA_DIR + '/sim_insertion_human',
-        'num_episodes': 50,
-        'episode_len': 500,
-        'camera_names': ['top']
-    },
-
-    'sim_usbc': {
-        'dataset_dir': DATA_DIR,
+    'sim_usbc_65': {
+        'dataset_dir': DATA_DIR + '/merged_dataset_65.hdf5',
         'num_episodes': 65,
+        'episode_len': 275,
+        'camera_names': ['camera']
+    },
+
+    'sim_usbc_215': {
+        'dataset_dir': DATA_DIR + '/merged_dataset_215.hdf5',
+        'num_episodes': 215,
+        'episode_len': 275,
+        'camera_names': ['camera']
+    },
+
+    'sim_usbc_cluster_65': {
+        'dataset_dir': 'data_storage/datasets/merged_dataset_65.hdf5',
+        'num_episodes': 65,
+        'episode_len': 275,
+        'camera_names': ['camera']
+    },
+    
+    'sim_usbc_cluster_215': {
+        'dataset_dir': 'data_storage/datasets/merged_dataset_215.hdf5',
+        'num_episodes': 215,
         'episode_len': 275,
         'camera_names': ['camera']
     },

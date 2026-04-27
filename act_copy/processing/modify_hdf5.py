@@ -797,7 +797,7 @@ if __name__ == "__main__":
     skip_steps = int(time_to_cut * dataset_frequency)
     
     # --- Configuration ---
-    MODE = "add_gripper_smooth"  # Choose: "cut", "augment", "merge", "delete_demo", or "add_gripper", "add_gripper_smooth", "prepare_metadata"
+    MODE = "clean_for_sim"  # Choose: "cut", "augment", "merge", "delete_demo", or "add_gripper", "add_gripper_smooth", "prepare_metadata"
     pos = True  # If True, map gripper commands (1/-1) to joint positions (0.04/0.0)
     
     SOURCE = "act_copy/data/dataset.hdf5"  # Specify your source dataset here
@@ -849,8 +849,8 @@ if __name__ == "__main__":
         fix_metadata_and_nest_in_data(SOURCE, TARGET, task_name=TASK)
     
     elif MODE == "clean_for_sim":
-        SOURCE = "datasets/generated_dataset_100demos_005std_005range.hdf5"
-        TARGET = "datasets/generated_dataset_100demos_005std_005range_cleaned.hdf5"
+        SOURCE = "act_copy/data/generated_dataset_200demos.hdf5"
+        TARGET = "act_copy/data/generated_dataset_200demos_cleaned.hdf5"
         cleanup_dataset_for_8dim_and_camera(SOURCE, TARGET)
 
     else:

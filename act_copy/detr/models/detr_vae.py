@@ -7,6 +7,7 @@ from torch import nn
 from torch.autograd import Variable
 from .backbone import build_backbone
 from .transformer import build_transformer, TransformerEncoder, TransformerEncoderLayer
+from .transformer_no_conditions import build_transformer_no_conditions
 
 import numpy as np
 
@@ -33,7 +34,7 @@ def get_sinusoid_encoding_table(n_position, d_hid):
 
 class DETRVAE(nn.Module):
     """ This is the DETR module that performs object detection """
-    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names,velocity_control = False, context_length=1):
+    def __init__(self, backbones, transformer, encoder, state_dim, num_queries, camera_names,velocity_control = False, context_length=1, conditioning_enabled=True, latent_dim=256, decoder_no_state=False):
         """ Initializes the model.
         Parameters:
             backbones: torch module of the backbone to be used. See backbone.py
@@ -41,6 +42,8 @@ class DETRVAE(nn.Module):
             state_dim: robot state dimension of the environment
             num_queries: number of object queries, ie detection slot. This is the maximal number of objects
                          DETR can detect in a single image. For COCO, we recommend 100 queries.
+            conditioning_enabled: if False, encoder only sees actions (no qpos/qvel) for debugging KL collapse
+            decoder_no_state: if True, decoder does not receive qpos/qvel conditioning (only latent z)
             aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
         """
         super().__init__()
@@ -48,10 +51,14 @@ class DETRVAE(nn.Module):
         self.camera_names = camera_names
         self.transformer = transformer
         self.encoder = encoder
+        self.conditioning_enabled = conditioning_enabled
+        self.decoder_no_state = decoder_no_state
         hidden_dim = transformer.d_model
-        self.action_head = nn.Linear(hidden_dim, 8)
-        self.is_pad_head = nn.Linear(hidden_dim, 1)
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
+        self.latent_dim = latent_dim # final size of latent z
+        
+        self.action_head = nn.Linear(hidden_dim, 8) #outputs action predictions
+        self.is_pad_head = nn.Linear(hidden_dim, 1) #outputs is_pad predictions
+        self.query_embed = nn.Embedding(num_queries, hidden_dim) #query embeddings for the decoder
         self.context_length = context_length
         self.time_embed = nn.Embedding(context_length, hidden_dim)
         if backbones is not None:
@@ -75,7 +82,6 @@ class DETRVAE(nn.Module):
             self.backbones = None
         
         # encoder extra parameters
-        self.latent_dim = 4 # final size of latent z # TODO tune
         self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
         self.encoder_action_proj = nn.Linear(8, hidden_dim) # project action to embedding
         #self.encoder_joint_proj = nn.Linear(8, hidden_dim)  # project qpos to embedding
@@ -89,12 +95,17 @@ class DETRVAE(nn.Module):
         self.register_buffer('pos_table',get_sinusoid_encoding_table(pos_table_len, hidden_dim))
 
         # decoder extra parameters
-        self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
+        self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding for decoder input
         # learned position embedding for latent, proprio (and optionally velocity)
         additional_pos_size = 3*self.context_length if velocity_control else 2*self.context_length
         self.additional_pos_embed = nn.Embedding(additional_pos_size, hidden_dim)
         self.temporal_embed = nn.Embedding(self.context_length, hidden_dim)       
-         
+    
+    """
+    TRANSFORMER ENCODER (for VAE latent space) LOGIC:
+    - Input to encoder: [CLS] token, qpos, (optionally qvel), action sequence
+    - Obtain latent z from encoder output at CLS token
+    """
     def forward(self, qpos, image, env_state, qvel=None, actions=None, is_pad=None):
         """
         qpos: batch, qpos_dim
@@ -104,8 +115,14 @@ class DETRVAE(nn.Module):
         """
         is_training = actions is not None # train or val
         bs = qpos.shape[0]
-        ### Obtain latent z from action sequence
+
+
         
+        ### --------------------------------------------------------------
+        ### ------------------------ ENCODER STEP ------------------------
+        ### --------------------------------------------------------------
+        ### Obtain latent z from action sequence (and optionally qpos/qvel)
+
         if is_training:            # project action sequence to embedding dim, and concat with a CLS token
             
             action_embed = self.encoder_action_proj(actions) # (bs, seq, hidden_dim)
@@ -148,16 +165,16 @@ class DETRVAE(nn.Module):
             latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(qpos.device)
             latent_input = self.latent_out_proj(latent_sample)
 
-       
+        ### --------------------------------------------------------------
+        ### ------------------------ DECODER STEP ------------------------
+        ### --------------------------------------------------------------
+        ### Obtain action predictions from latent z and image features (and optionally qpos/qvel)
         if self.backbones is not None:
             # Image observation features and position embeddings
             all_cam_features = []
             all_cam_pos = []
             for cam_id, cam_name in enumerate(self.camera_names):
                 for i in range(self.context_length):
-                    #print("Processing camera:", cam_name, "time step:", i   )
-                    #print("Image shape:", image.shape)
-                    #print( image[:, cam_id,i].shape)
                     features, pos = self.backbones[cam_id](image[:, cam_id,i]) # HARDCODED
                     features = features[0] # take the last layer feature
                     pos = pos[0]
@@ -171,17 +188,24 @@ class DETRVAE(nn.Module):
             else:
                 proprio_input_vel = None
             
-            proprio_input_pos = self.input_proj_robot_state(qpos)
             # fold camera dimension into width dimension
             src = torch.cat(all_cam_features, axis=3) # concat on width dimension
             pos = torch.cat(all_cam_pos, axis=3)
             
-            hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, proprio_input_pos, self.additional_pos_embed.weight, velocity_input = proprio_input_vel, temporal_embed=self.temporal_embed.weight)[0]
+            # Prepare decoder conditioning: optionally exclude qpos/qvel
+            if self.decoder_no_state:
+                # Only use latent z, not qpos/qvel
+                hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, None, self.additional_pos_embed.weight, velocity_input=None, temporal_embed=self.temporal_embed.weight)[0]
+            else:
+                # Include qpos and optionally qvel in decoder conditioning
+                proprio_input_pos = self.input_proj_robot_state(qpos)
+                hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, proprio_input_pos, self.additional_pos_embed.weight, velocity_input = proprio_input_vel, temporal_embed=self.temporal_embed.weight)[0]
         else:
             qpos = self.input_proj_robot_state(qpos)
             env_state = self.input_proj_env_state(env_state)
             transformer_input = torch.cat([qpos, env_state], axis=1) 
             hs = self.transformer(transformer_input, None, self.query_embed.weight, self.pos.weight)[0]
+        # DECODER OUTPUTS
         a_hat = self.action_head(hs)
         is_pad_hat = self.is_pad_head(hs)
         return a_hat, is_pad_hat, [mu, logvar]
@@ -275,29 +299,37 @@ def build_encoder(args):
 
 
 def build(args):
-    state_dim = 8 # TODO hardcode
 
-    # From state
-    # backbone = None # from state for now, no need for conv nets
-    # From image
     backbones = []
     for _ in args.camera_names:
         backbone = build_backbone(args)
         backbones.append(backbone)
+    # Get conditioning_enabled flag if it exists, defaults to True
+    conditioning_enabled = getattr(args, 'conditioning_enabled', True)
 
-    transformer = build_transformer(args)
+    # Get decoder_no_state flag if it exists, defaults to False
+    decoder_no_state = getattr(args, 'decoder_no_state', False)
+    
+    # Choose transformer based on decoder_no_state flag
+    if decoder_no_state:
+        transformer = build_transformer_no_conditions(args)
+    else:
+        transformer = build_transformer(args)
 
     encoder = build_encoder(args)
-
+    
     model = DETRVAE(
         backbones,
         transformer,
         encoder,
-        state_dim=state_dim,
+        state_dim=args.state_dim,
         num_queries=args.num_queries,
         camera_names=args.camera_names,
         velocity_control = args.velocity_control, 
         context_length = args.context_length,
+        conditioning_enabled = conditioning_enabled,
+        latent_dim = args.latent_dim,
+        decoder_no_state = decoder_no_state,
     )
 
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)

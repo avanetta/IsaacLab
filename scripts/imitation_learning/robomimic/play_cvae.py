@@ -134,7 +134,7 @@ def rollout(
     
 
     # === Cache temporal ensemble buffers ===
-    num_queries = 32 
+    num_queries = 16 
     action_dim = env.action_space.shape[1]
     all_time_actions = torch.zeros(horizon, horizon + num_queries, action_dim, device=device)
 
@@ -200,7 +200,7 @@ def rollout(
             ) 
 
             post_processed_chunk = post_process(actions_raw[0])
-            all_time_actions[[t], t : t + actions_raw.shape[1]] = actions_raw[0, :, :]
+            all_time_actions[t, t : t + actions_raw.shape[1]] = actions_raw[0, :, :]
 
             # Temporal Ensembling
             actions_t = all_time_actions[:, t]
@@ -208,7 +208,7 @@ def rollout(
             actions_t = actions_t[valid]
 
             N = actions_t.shape[0]
-            k = 0.01 # Added a small k for actual ensembling, or 0 for mean
+            k = 0.1 # Added a small k for actual ensembling, or 0 for mean
             weights = torch.exp(-k * torch.arange(N, device=device))
             weights = (weights / weights.sum()).unsqueeze(1)
             
@@ -270,75 +270,6 @@ def rollout(
 
     return trial_result, observation_log
 
-def update_environment_events(env):
-    """Add a reset event that places the plug at a fixed position every reset.
-
-    The plug is always reset to its default spawn pose so the starting
-    conditions are deterministic across rollouts.
-    """
-    from isaaclab.managers import EventTermCfg as EventTerm
-    from isaaclab.managers import SceneEntityCfg
-    from isaaclab.envs.mdp.events import reset_root_state_uniform
-
-    # Fixed plug pose — zero ranges → no randomisation
-    env.cfg.events.reset_plug_fixed = EventTerm(
-        func=reset_root_state_uniform,
-        mode="reset",
-        params={
-            "asset_cfg": SceneEntityCfg("plug"),
-            "pose_range": {},          # all zeros → default root state
-            "velocity_range": {},      # all zeros → zero velocity
-        },
-    )
-
-    # Re-build the event manager so the new term is active
-    from isaaclab.managers import EventManager
-    env.event_manager = EventManager(env.cfg.events, env)
-
-    print("[INFO] Plug reset event installed")
-
-def load_custom_cube_configurations(file_path):
-    """Load custom cube configurations from JSON file.
-    
-    Args:
-        file_path: Path to JSON file containing cube configurations
-        
-    Returns:
-        List of cube configurations, each containing poses for 3 cubes
-    """
-    try:
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        
-        # Support both new multi-configuration format and legacy single configuration
-        if isinstance(data, dict) and "configurations" in data:
-            # New format: {"configurations": [{"name": ..., "poses": [...]}, ...]}
-            configurations = data["configurations"]
-            print(f"[INFO] Loaded {len(configurations)} cube configurations:")
-            for i, config in enumerate(configurations):
-                print(f"  {i}: {config['name']} - {config.get('description', 'No description')}")
-            return configurations
-        elif isinstance(data, list):
-            # Legacy format: [{"pos": ..., "quat": ...}, ...]
-            print(f"[INFO] Converting legacy format to new configuration format")
-            legacy_config = {
-                "name": "legacy_config",
-                "description": "Converted from legacy format",
-                "poses": data
-            }
-            return [legacy_config]
-        else:
-            print(f"[ERROR] Invalid JSON format in {file_path}")
-            return None
-            
-    except FileNotFoundError:
-        print(f"[ERROR] Configuration file not found: {file_path}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"[ERROR] Invalid JSON in {file_path}: {e}")
-        return None
-
-
 def main():
     """Run a trained policy from robomimic with Isaac Lab environment."""
     # command line parameters
@@ -374,22 +305,26 @@ def main():
 
     lr_backbone = 1e-5
     backbone = 'resnet18'
+    state_dim = 8
 
     enc_layers = 4 #TODO 4
-    dec_layers = 6 #TODO 6
+    dec_layers = 7 #TODO 6
+    latent_dim = 128
     nheads = 8
     policy_config = {   'ckpt_dir': args_cli.checkpoint,
-                        'num_queries': 32, #TODO 64
+                        'num_queries': 16, #TODO 64
                         'lr_backbone': lr_backbone,
                         'backbone': backbone,
                         'enc_layers': enc_layers,
                         'dec_layers': dec_layers,
                         'nheads': nheads,
-                        'dim_feedforward': 2048, #TODO delete
-                        'hidden_dim': 256, #TODO delete
+                        'dim_feedforward': 3200, #TODO delete
+                        'hidden_dim': 512, #TODO delete
                         'camera_names': ["image"],
                         'velocity_control': args_cli.velocity_control,
-                        'context_length': args_cli.context_length
+                        'context_length': args_cli.context_length,
+                        'state_dim': state_dim,
+                        'latent_dim': latent_dim,
                         
                         }
     from act_copy.policy_runner import ACTPolicy
@@ -421,10 +356,7 @@ def main():
     best_start = 0
     best_end = 0
     best_success = 0
-    #for  end in range(64):
-    #    for start in range(10):
-    # Install a fixed-plug-pose reset event so the plug always starts at the same place
-    #update_environment_events(env)
+
 
     for trial in range(args_cli.num_rollouts):
         print(f"[INFO] Starting trial {trial}")

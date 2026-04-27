@@ -67,8 +67,12 @@ def get_args_parser():
     parser.add_argument('--image_aug', action='store_true')
     parser.add_argument('--context_length', action='store', type=int, help='context_length', required=False, default=1)
     parser.add_argument("--pretrained", type=str, help="Path to pretrained model", default=None)
-
-
+    parser.add_argument('--dimfeedforward', action='store', type=int, help='dim_feedforward', required=False, default=2048)
+    parser.add_argument('--beta_warmup_epochs', action='store', type=int, help='Number of epochs to warmup beta (KL weight)', required=False, default=0)
+    parser.add_argument('--latent_dim', action='store', type=int, help='latent_dim', required=False, default=256)
+    parser.add_argument('--state_dim', action='store', type=int, help='state_dim', required=False, default=8)
+    parser.add_argument('--decoder_no_state', action='store_true', help='If True, decoder does not receive qpos/qvel (only latent z)')
+    parser.add_argument('--num_real_demos', type=int, default=0, help='Number of real-world demos for weighted sampling')
     return parser
 
 

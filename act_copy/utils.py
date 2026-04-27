@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import os
 import h5py
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, WeightedRandomSampler
 
 import IPython
 e = IPython.embed
@@ -318,7 +318,7 @@ def get_norm_stats(dataset_dir, num_episodes):
 
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val,chunk_size = 100,context_length=1, velocity_control=False):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, chunk_size=100, context_length=1, velocity_control=False, num_real_demos=0):
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split
     train_ratio = 0.8
@@ -333,8 +333,37 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     # construct dataset and dataloader
     train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, chunk_size=chunk_size, context_length=context_length, cache_mode='fulllazy', velocity_control=velocity_control)
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, chunk_size=chunk_size, context_length=context_length, cache_mode='fulllazy', velocity_control=velocity_control)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers = 8, prefetch_factor=4, persistent_workers=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=12, prefetch_factor=4, persistent_workers=True)
+    
+    # Weighted sampling for real vs sim demos
+    if num_real_demos > 0:
+        print(f"[INFO] Using weighted sampling: {num_real_demos} real demos, {num_episodes - num_real_demos} sim demos")
+        
+        # Calculate weights: real demos get higher weight to oversample them
+        num_sim_demos = num_episodes - num_real_demos
+        # Weight each real demo by the ratio of sim to real demos
+        weight_per_real = num_sim_demos / num_real_demos if num_real_demos > 0 else 1.0
+        weight_per_sim = 1.0
+        
+        # Create sample weights for all episodes
+        sample_weights = np.ones(num_episodes)
+        sample_weights[:num_real_demos] = weight_per_real
+        
+        print(f"[INFO] Real demo weight: {weight_per_real:.3f}, Sim demo weight: {weight_per_sim:.3f}")
+        print(f"[INFO] Expected batch composition: ~{weight_per_real / (weight_per_real * num_real_demos + weight_per_sim * num_sim_demos) * 100:.1f}% real, ~{weight_per_sim * num_sim_demos / (weight_per_real * num_real_demos + weight_per_sim * num_sim_demos) * 100:.1f}% sim")
+        
+        # Create weighted samplers for train dataset
+        train_sampler = WeightedRandomSampler(
+            weights=sample_weights[train_indices],  # Only use indices that are in training set
+            num_samples=len(train_indices),
+            replacement=True
+        )
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, sampler=train_sampler, pin_memory=True, num_workers=4, prefetch_factor=2, persistent_workers=True)
+    else:
+        # Original behavior: shuffle without weighting
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=4, prefetch_factor=2, persistent_workers=True)
+    
+    # Validation dataloader always uses shuffle=True (no weighting needed)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=4, prefetch_factor=2, persistent_workers=True)
 
     return train_dataloader, val_dataloader, norm_stats, train_dataset.is_sim
 

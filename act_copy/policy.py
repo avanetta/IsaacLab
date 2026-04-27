@@ -16,6 +16,7 @@ class ACTPolicy(nn.Module):
         self.model = model # CVAE decoder
         self.optimizer = optimizer
         self.kl_weight = args_override['kl_weight']
+        self.beta_warmup_epochs = args_override.get('beta_warmup_epochs', 0)  # 0 = no warmup (use full KL from start)
 
 
     def __call__(self, qpos, image, actions=None, is_pad=None, qvel=None, epoch = 0):
@@ -28,12 +29,20 @@ class ACTPolicy(nn.Module):
             is_pad = is_pad[:, :self.model.num_queries]
             a_hat, is_pad_hat, (mu, logvar) = self.model(qpos, image, env_state, qvel=qvel, actions=actions, is_pad=is_pad)
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
+            #total_kld, dim_wise_kld, mean_kld = kl_divergence_with_free_bits(mu, logvar)
             loss_dict = dict()
             all_l1 = F.l1_loss(actions, a_hat, reduction='none')
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
             loss_dict['kl'] = total_kld[0]
-            loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight
+            
+            # Beta-warmup: linearly increase KL weight from 0 to kl_weight over warmup epochs
+            if self.beta_warmup_epochs > 0:
+                beta = min(1.0, epoch / self.beta_warmup_epochs)  # Linear warmup: 0 -> 1
+            else:
+                beta = 1.0  # No warmup, use full KL weight immediately
+            
+            loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight * beta
             return loss_dict
         else: # inference time
             a_hat, _, (_, _) = self.model(qpos, image, env_state, qvel) # no action, sample from prior
@@ -79,6 +88,22 @@ def kl_divergence(mu, logvar):
         logvar = logvar.view(logvar.size(0), logvar.size(1))
 
     klds = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+    total_kld = klds.sum(1).mean(0, True)
+    dimension_wise_kld = klds.mean(0)
+    mean_kld = klds.mean(1).mean(0, True)
+
+    return total_kld, dimension_wise_kld, mean_kld
+
+def kl_divergence_with_free_bits(mu, logvar, free_bits=0.01):
+    batch_size = mu.size(0)
+    assert batch_size != 0
+    if mu.data.ndimension() == 4:
+        mu = mu.view(mu.size(0), mu.size(1))
+    if logvar.data.ndimension() == 4:
+        logvar = logvar.view(logvar.size(0), logvar.size(1))
+
+    klds = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp())
+    klds = torch.clamp(klds, min=free_bits) # apply free bits threshold
     total_kld = klds.sum(1).mean(0, True)
     dimension_wise_kld = klds.mean(0)
     mean_kld = klds.mean(1).mean(0, True)
